@@ -1,0 +1,384 @@
+---
+title: "Topological Data Analysis"
+output: html_document
+date: "2022-12-04"
+---
+
+# Topological Data Analysis
+### Soham Changani
+
+This notebook will provide an introduction to Topological Data Analysis(TDA), show how we can interpret persistence plots, show simulations of data that could be analyzed with TDA, and finally work with an example of real data and apply TDA to the analysis. The target audience for this notebook knows about Homology, topological invariants and have had some introduction to time series data. If you would like to learn more about the concepts mentioned, there is a supplemental paper that will walk you through these concepts. Any other questions can be emailed to changa_s1@denison.edu.
+
+**Note**: Default install.packages in R will install version 0.1.1 for ripserr. In order for the code to work, we need ripserr 0.2.0 which is the latest version. The following lines of code will help you do that:
+install.packages("remotes")
+remotes::install_github("rrrlw/ripserr")
+You might have to update Rtools as well but after that it should work well.
+
+```{r setup, include=FALSE}
+#Loading required packages
+knitr::opts_chunk$set(echo = TRUE)
+require(astsa) #Library for book
+require(xts)
+require(mosaic)
+require(dplyr)
+require(car)
+require(Stat2Data)
+require(dynlm)
+library(nlme)
+require(AER)
+library(forecast)
+require(mgcv)
+library(tseries)
+require(lmtest)
+require(fBasics)
+require(leaps)
+require(nortest)
+require(fracdiff)
+require(arfima)
+library(tsDyn)
+library(sm)
+require(TDA)
+require(FNN)
+require(igraph)
+require(scales)
+require(ripserr)
+require(quantmod)
+require(tidyquant)
+library(TDAstats)
+require(fpp2)
+require(rdist)
+library(ggplot2)
+library(gplots)
+library(tidyverse)
+```
+
+The general idea in topological data analysis is finding the number of connected components (using $H_0$), the number of loops or circles (using $H_1$) and number of voids (using $H_2$). More theory about what Homology is can be found in the accompanying paper. For data analysis in general, TDA is a really powerful tool to capture shapes in data and can help with clustering (it generally performs better than K-means or other clustering algorithms). For time series in particular, TDA is useful since it allows us to capture the periodicity in time series data and it is shape agnostic and resistant to dampening. TDA is also very useful in analyzing time-dependent image data to look at changes in a particular video. TDA is also widely used to study medical data and has been very useful in detecting the structure of neuron signals, finding periodicity in gene expression data etc.
+
+One of the methods for TDA is as follows:
+1) Take a time series object.
+2) Make a sliding window point cloud (the method is explained further).
+3) Make a Vietoris-Rips complex.
+4) Plot the persistence diagram to find the connected components, loops and voids in the embedding.
+
+### Sliding Window point cloud
+The first step in analyzing time series data using TDA is to create a sliding window point cloud. This is not the only method but it is widely used. This is done by constructing a time delay embedding or a Takens embedding, named after Floris Takens. A time delay embedding is created by sliding a window of some size $d$ over the signal to represent each window as a point in a possibly higher dimensional space. Hence, let $d$ be our window size and let $\tau$ be the step. For a time series $f(t)$, in order to create a particular window, we take points $[f(t), f(t+\tau), \dots, f(t+d\tau)] \in \mathbb{R}^{d+1}$. Thus, each window gives us a point in $\mathbb{R}^{d+1}$ for a specified $d$. This then gives us a point cloud which we can create a Vietoris-Rips complex (essentially we are creating a simplicial complex of our point cloud) before creating and interpreting the persistence diagram. The reason this works is because of Takens Embedding Theorem which says that in employing this method, we obtain a structure that is topologically equivalent to the original signal.
+
+### Persistence diagrams
+Before we analyze time series data, let's look at persistence diagrams and learn how to interpret them. Given below is simulated data that has a circular shape which could certainly happen if the population we are drawing from has that shape. The persistence diagram is shown as well.
+
+```{r}
+circleSample <- circleUnif(n = 200, r = 1)
+plot(circleSample, xlab = "", ylab = "", pch = 20)
+DiagLim <- 5
+maxdimension <- 1
+
+## rips diagram
+Diag <- ripsDiag(circleSample, maxdimension, DiagLim, printProgress = TRUE)
+#plot
+par(mfrow = c(1, 2))
+plot(Diag[["diagram"]])
+plot(Diag[["diagram"]], rotated = TRUE)
+```
+
+The theory behind creating persistence diagrams is as follows:
+
+We create a circular blob or disk around each point in our data set. At the start, i.e. at radius close to 0, each point is a connected component. We then allow the radius of the disk to grow. We record the radius at which each connected component is "born" and "dies". When two disks intersect, one of the connected components is said to die since they are now both one component. This relates to $H_0$ on the persistence plots. Additionally, we also measure the birth and death radii for every loop or circle that appears in our data. This is measured by the $H_1$ point on the persistence diagram. Finally, we also capture the birth and death of $H_2$ components which are in the form of voids (like a sphere). This example has no $H_2$ points since there are no voids appearing in our data. We will see examples of it later.
+
+Notice the persistence diagram above. The way we read a persistence diagram is by looking at the distance of a point from the $x=y$ line. We get one distinct orange point far from the line. This suggests that there is a circular shape in the data. All the blue points die very quickly except for one. This suggests that most of the data is very close together and hence gets connected quickly.
+
+*Why Persistent Homology?*
+
+We might wonder why we don't just compute the homology group of the point cloud of a given data structure and why we care about the birth and death of topological features. The answer is actually quite simple. The homology group of most sets of points (take the circle above for example) is actually just $0$. This is because there is no inherent connected component structure in any point cloud. However, if we use the method described i.e. increasing the size of blobs around a point and noticing which of the topological structures *persist*, this gives us a better idea about the structure of the data since we can observe whether there are any voids or loops in the dataset.
+
+From here, we move on to analyzing time series data using persistent homology. There are more examples of shapes and their persistence plots in the accompanying Jupyter Notebook.
+
+### Applications for Time Series
+
+The first application of TDA in time series analysis is detection of periodicity. We have other methods like spectral analysis that might seem to be more powerful since all the information we gain from persistence plots is whether periodicity exists and its strength. However, there are cases of time series data which have varying amplitudes or noise and spectral analysis might not be able to catch the periodic trend but TDA might (recall that it is shape and amplitude agnostic). Additionally, it would allow us to detect periodicity in other forms of data too.
+
+This file is going to walk through two examples of real life time series and use TDA to reveal their structure. Firstly, however; let us look at some simulated time series data.
+
+```{r}
+# Periodic time series
+x1 = 2*cos(2*pi*1:100*6/100) + 3*sin(2*pi*1:100*6/100)
+tsplot(x1, ylim=c(-10,10))
+```
+
+This function below converts a given time series to a Vietoris-Rips complex using Takens embedding. We then store it as a data matrix that can be passed to plot_persist function in TDAstats to obtain the persistence diagram for a particular time series. Note here that this persistence diagram is for the Takens embedding (using the sliding window), and not the time series itself. However, we can analyze the diagram to tell us a story about the time series we started with.
+
+```{r}
+VR.TS <- function(x){
+  data.matrix(
+    vietoris_rips.ts(dataset = x,
+                     dim_lag = 3,
+                     sample_lag=5))
+}
+```
+
+```{r}
+plot_persist(VR.TS(x1))
+```
+
+For the plot above, notice how there is a persistent $H_1$ value. This suggests "more" circular embedding, which is related to higher periodicity in our time series.
+
+Consider a time series with more noise and hence it is less periodic.
+
+```{r}
+x1 = 2*cos(2*pi*1:100*6/100) + 3*sin(2*pi*1:100*6/100)
+x2 = 4*cos(2*pi*1:100*10/100) + 5*sin(2*pi*1:100*10/100)
+x3 = 6*cos(2*pi*1:100*40/100) + 7*sin(2*pi*1:100*40/100)
+x = x1 + x2 + x3
+tsplot(x)
+plot_persist(VR.TS(x))
+```
+
+The persistence plot actually finds that there are no persistent 1 dimensional loops in the embedding for this time series i.e. it suggests that this time series does not have a noticeable periodic trend. This result is surprising since this data was created with 3 periodic trends. Hence, let's try different values for lag to see if that captures more of the periodicity.
+
+```{r}
+plot_persist(as.matrix(vietoris_rips.ts(x, dim_lag = 4, sample_lag = 7)))
+```
+
+Using a dimension lag of 4 and sample lag of 7, we do see the expected persistent $H_1$ features. However, there does not exist a method in R to find the optimum lag yet so we can only use trial and error if we did know the actual periodicity or structure (again, note that we do not always know the true structure of the time series like we do here and we are trying to find it). There does exist such a method in Python which is highlighted in the accompanying Jupyter Notebook.
+
+### Real-World Examples
+
+Let us now look at various examples of real life time series data and interpret their persistence plots.
+
+```{r}
+data("PeaceBridge2003")
+tsplot(PeaceBridge2003$Traffic)
+```
+
+```{r}
+plot_persist(VR.TS(PeaceBridge2003$Traffic))
+```
+
+We know from looking at the Peace Bridge data that it has some seasonality and is periodic in nature. The persistence diagram confirms the same, since we see persistent 1-dimensional loops in the embedding.
+
+```{r}
+data(SeaIce)
+tsplot(SeaIce$Extent)
+```
+
+```{r}
+plot_persist(VR.TS(SeaIce$Extent))
+```
+
+Recall the Sea Ice data. We know from performing spectral analysis that this data indeed does not have any periodicity. Notice in the persistence diagram that there is no 1-dimensional persistent feature in the embedding which confirms the same.
+
+```{r}
+data(Inflation)
+tsplot(Inflation$CPIPctDiff)
+```
+
+```{r}
+plot_persist(VR.TS(Inflation$CPIPctDiff))
+```
+
+We know that the CPIPctDiff data under Inflation has a significant yearly cycle. This is just confirmed by the persistence plot above. Notice also that the other 1-dimensional feature is very close to the $x=y$ line so it is not "persistent".
+
+```{r}
+data(rec)
+tsplot(rec)
+```
+
+```{r}
+plot_persist(VR.TS(rec))
+```
+
+We know that the rec dataset had two significant cycles (1 year and 4 year cycle). Notice that the persistence diagram has a lot of persistent 1 dimensional features. Hence, it is important to note that there is not a one-to-one correspondence between the number of persistent $H_1$ components and the number of significant periods (think back to the fact that this is the persistence diagram of the embedding). However, the existence of persistent $H_1$ features does suggest periodicity.
+
+### Time Series Clustering
+
+Another important application of topological data analysis to time series is clustering. Since homology is a topological invariant, comparing persistence diagrams for two time series can tell us how similar they are. We will use the production, unemployment, income, savings, consumption time series that are in uschange under fpp2.
+
+```{r}
+data(uschange)
+tsplot(uschange)
+```
+
+```{r}
+df <- data.frame(uschange, date = time(uschange))
+unemp <- ts(df$Unemployment)
+prodn <- ts(df$Production)
+consumption <- ts(df$Consumption)
+income <- ts(df$Income)
+savings <- ts(df$Savings)
+```
+
+Firstly, we create a persistence landscape for each of the time series we are provided with. Persistence landscapes are similar to persistence diagrams except the birth-death information for features is stored in one dimension so it just measures the most significant or persistent features in the data. We could hypothesize that income, consumption and production would have similar structures.
+
+This is what the persistence diagram vs landscape look like for the unemployment data.
+
+```{r}
+plot_persist(VR.TS(unemp))
+```
+
+```{r}
+plot(landscape(VR.TS(unemp)), type = "line")
+```
+
+Notice how there are corresponding peaks to the persistent dots in the persistence landscape.
+
+The first step in clustering is to store the landscapes as a matrix with each column corresponding to a time series.
+
+```{r}
+mat1 <- cbind(landscape(VR.TS(unemp)), landscape(VR.TS(prodn)), landscape(VR.TS(consumption)), landscape(VR.TS(income)), landscape(VR.TS(savings)))
+colnames(mat1) <- c("unemployment", "production", "consumption", "income", "savings")
+```
+
+Next, we will use Euclidean distance to measure how close the persistence landscapes are to each other. We could use other distance metrics here as well.
+
+```{r}
+dist_all <- rdist(X = t(mat1), metric = "euclidean", p=2)
+```
+
+Finally we cluster the data by the distances and make a plot showing which time series had similar structures.
+
+```{r}
+hc <- hclust(d = dist_all,method = "ward.D2")
+```
+
+```{r}
+nodePar <- list(lab.cex = 1.2, pch = c(NA, 19), 
+                cex = 0.7, col = "red")
+par(mfrow=c(1,1))
+plot(as.dendrogram(hc),
+     nodePar = nodePar,
+     main = 'Clustering Time Series with its PL')
+```
+
+This shows unemployment, consumption and production having similar structures based on their persistence landscapes. This is interesting since I would have expected income to be similar to production and consumption. Note again that persistence landscapes are finding the topological structure of the embedding which is topologically equivalent to the data itself.
+
+### Another Clustering Example
+This code has been adapted from https://github.com/ismailguzel/tutorial-a-thon/blob/main/TutorialTimeSeries-a-Thon.R. This is an example of clustering of time series using a similar method but for stock price data. We will be using the tidyquant package in R to obtain the data.
+
+```{r}
+symbols <- c(
+  "AAPL", "GOOGL","MSFT", "IWM", "QQQ","SPY","TLT", "XLB",
+  "XLE", "XLF", "XLI", "XLK", "XLP","XLU", "XLV","XLY" 
+)
+
+stock.df <- tidyquant::tq_get(symbols,
+                              get = "stock.prices",
+                              from = "2020-06-17",
+                              to = "2021-11-01")
+
+stock <- stock.df %>%
+  select(symbol,date, close)
+
+stock.spread <- stock %>% 
+  spread(key = symbol, value = close) %>% 
+  na.omit()
+
+# Log Return
+stock_ret <- stock %>% 
+  group_by(symbol) %>% 
+  arrange(date,.by_group=T) %>% 
+  mutate(log_Returns=log(close/dplyr::lag(close))) %>% 
+  na.omit()
+
+stock_ret %>%
+  ggplot(aes(date,log_Returns))+
+  geom_line()+ facet_wrap(~symbol, scales = "free")+
+  theme_tq()
+```
+
+This is the plot of $16$ different closing stock prices time series after taking the log and difference.
+
+```{r}
+stock_nested <- stock_ret %>%
+  select(symbol,date,log_Returns) %>%
+  nest(data = c(date, log_Returns))
+
+Landscapes <- stock_nested %>%
+  mutate(Diagrams=map(data,~VR.TS(as.matrix(.x[,2])))) %>% 
+  mutate(P_Landscapes=map(Diagrams,landscape))
+```
+
+```{r}
+Landscapes %>% 
+  select(symbol,P_Landscapes) %>%
+  unnest(cols = c(P_Landscapes)) %>% 
+  group_by(symbol) %>% 
+  mutate(index = 1:500) %>% 
+  ggplot(aes(index,P_Landscapes[,1]))+
+  geom_line(col="darkorange1", lty = 1, lwd  =2)+
+  labs(x = "index",
+       y= "Landscape Values",
+       title = "Persistence Landscapes")+
+  facet_wrap(~symbol)+
+  theme_tq(base_size = 15)
+
+Landscape_Matrix <- Landscapes %>% 
+  select(symbol, P_Landscapes) %>%
+  unnest(cols = c(P_Landscapes)) %>% 
+  mutate(row = row_number()) %>% 
+  spread(symbol, P_Landscapes) %>% 
+  select(-row) %>% 
+  as.matrix()
+```
+
+This is what the persistence landscapes look like for each of the stock price time series. Recall that a persistence landscape has the same data as a persistence plot just represented as distance from the x-y line.
+
+```{r}
+dist_all <- rdist(X = t(Landscape_Matrix),
+                  metric = 'euclidean', p = 2)
+
+## Hierarchical clustering on distance matrix
+hc <- hclust(d = dist_all,method = "ward.D2")
+
+## Plot clustering results
+nodePar <- list(lab.cex = 1.2, pch = c(NA, 19), 
+                cex = 0.7, col = "red")
+par(mfrow=c(1,1))
+plot(as.dendrogram(hc),
+     nodePar = nodePar,
+     main = 'Clustering Time Series with its PL')
+
+```
+
+Finally, this is what the clustering looks like for the given stock prices. We would expect the stocks Apple, Google and Microsoft to behave similarly which they do. Additionally, the stocks XLF, XLE, XLV, XLP and XLB are all in a similar cluster which we would have expected. This example shows how topological data analysis can be very useful in finding if different time series have similar structures and could help us with visualizing one time series as a function of other series (could have helpful applications to cross correlation and xreg for example).
+
+#### Covid 19 Data
+
+Let's now look at the number of new COVID 19 cases as time series for some countries and use a similar method to cluster them. The data set I use is from https://ourworldindata.org/covid-cases. 
+
+```{r}
+covidmeta <- read.csv("owid-covid-data.csv")
+india <- na.remove(as.ts(subset(covidmeta, location == "India", select = c(new_cases))))
+usa <- na.remove(as.ts(subset(covidmeta, location == "United States", select = c(new_cases))))
+italy <- na.remove(as.ts(subset(covidmeta, location == "Italy", select = c(new_cases))))
+france <- na.remove(as.ts(subset(covidmeta, location == "France", select = c(new_cases))))
+spain <- na.remove(as.ts(subset(covidmeta, location == "Spain", select = c(new_cases))))
+pakistan <- na.remove(as.ts(subset(covidmeta, location == "Pakistan", select = c(new_cases))))
+brazil <- na.remove(as.ts(subset(covidmeta, location == "Brazil", select = c(new_cases))))
+argentina <- na.remove(as.ts(subset(covidmeta, location == "Argentina", select = c(new_cases))))
+japan <- na.remove(as.ts(subset(covidmeta, location == "Japan", select = c(new_cases))))
+egypt <- na.remove(as.ts(subset(covidmeta, location == "Egypt", select = c(new_cases))))
+hungary <- na.remove(as.ts(subset(covidmeta, location == "Hungary", select = c(new_cases))))
+bangladesh <- na.remove(as.ts(subset(covidmeta, location == "Bangladesh", select = c(new_cases))))
+canada <- na.remove(as.ts(subset(covidmeta, location == "Canada", select = c(new_cases))))
+```
+
+```{r}
+mat2 <- cbind(landscape(VR.TS(india)), landscape(VR.TS(usa)), landscape(VR.TS(italy)), landscape(VR.TS(france)), landscape(VR.TS(spain)), landscape(VR.TS(pakistan)), landscape(VR.TS(brazil)), landscape(VR.TS(argentina)), landscape(VR.TS(japan)), landscape(VR.TS(egypt)), landscape(VR.TS(hungary)), landscape(VR.TS(bangladesh)), landscape(VR.TS(canada)))
+colnames(mat2) <- c("India", "USA", "Italy", "France", "Spain", "Pakistan", "Brazil", "Argentina", "Japan", "Egypt", "Hungary", "Bangladesh", "Canada")
+```
+
+```{r}
+dist_all1 <- rdist(X = t(mat2), metric = "euclidean", p=2)
+hc1 <- hclust(d = dist_all1,method = "ward.D2")
+nodePar <- list(lab.cex = 1.2, pch = c(NA, 19), 
+                cex = 0.7, col = "red")
+par(mfrow=c(1,1))
+plot(as.dendrogram(hc1),
+     nodePar = nodePar,
+     main = 'Clustering Time Series with its PL')
+```
+
+This clustering method suggests similarities between the COVID-19 trend in Italy, Bangladesh and Spain; as well as Pakistan and Egypy and Argentina and Canada. There are some interesting findings here that can be checked with the actual data to see whether the government and public response was similar in these countries. However, for now, it is enough to realize the power of TDA is clustering and the ability to use for multiple purposes in time series analysis.
+
+## Conclusion
+
+Overall, topological data analysis is a really powerful tool that can be applied to statistics and time series analysis. It is still a developing field and will surely be used widely in statistics in the future. For time series analysis, it acts quite a lot like an invariant, providing us information about the structure of the information and helping us with clustering. If there were a time series we were not able to fit any good model for, TDA could provide us with tools to figure out if it is similar to other more "well behaved" models and get an approximation for the time series in question. It is also great at detecting periodicity and helps in distinguishing two time series.
